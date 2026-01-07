@@ -1,12 +1,17 @@
 import { useAuth, AuthProvider } from '@/contexts/AuthContext';
 import { LoginPage } from '@/components/login/LoginPage';
 import { MainApp } from '@/components/MainApp';
+import { DataSourceSelection } from '@/components/onboarding/DataSourceSelection';
 
 function AppContent() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, hasSelectedDataSource, selectDataSource } = useAuth();
 
   if (!isAuthenticated) {
     return <LoginPage />;
+  }
+
+  if (!hasSelectedDataSource) {
+    return <DataSourceSelection onComplete={selectDataSource} />;
   }
 
   return <MainApp />;
