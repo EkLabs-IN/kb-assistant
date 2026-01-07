@@ -4,8 +4,10 @@ import { User, UserRole, ROLE_CONFIGS } from '@/types/roles';
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
+  hasSelectedDataSource: boolean;
   login: (email: string, password: string, role: UserRole) => Promise<boolean>;
   logout: () => void;
+  selectDataSource: () => void;
   getRoleConfig: () => typeof ROLE_CONFIGS[UserRole] | null;
 }
 
@@ -73,6 +75,7 @@ const DEMO_USERS: Record<UserRole, User> = {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [hasSelectedDataSource, setHasSelectedDataSource] = useState<boolean>(false);
 
   const login = useCallback(async (email: string, password: string, role: UserRole): Promise<boolean> => {
     // Simulated authentication - in production, this would validate against backend
@@ -88,6 +91,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => {
     setUser(null);
+    setHasSelectedDataSource(false);
+  }, []);
+
+  const selectDataSource = useCallback(() => {
+    setHasSelectedDataSource(true);
   }, []);
 
   const getRoleConfig = useCallback(() => {
@@ -99,8 +107,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider value={{
       user,
       isAuthenticated: !!user,
+      hasSelectedDataSource,
       login,
       logout,
+      selectDataSource,
       getRoleConfig
     }}>
       {children}
