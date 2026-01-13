@@ -215,7 +215,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   /**
    * Sign up function - registers new user with Supabase
-   * Uses two-step process: create account + send OTP
+   * Creates account and sends confirmation email with OTP
    */
   const signUp = useCallback(async (data: SignUpData): Promise<boolean> => {
     try {
@@ -232,7 +232,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         department: data.department,
       });
 
-      // STEP 1: Create the user account
+      // Create user account with email confirmation
+      // Supabase will automatically send a confirmation email with 6-digit OTP
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: data.email,
         password: data.password,
@@ -244,7 +245,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             department: data.department,
             role: mapDepartmentToRole(data.department),
           },
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
+          // Don't specify emailRedirectTo for OTP flow
         },
       });
 
@@ -257,22 +258,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error('Sign-up failed. Please try again.');
       }
 
-      // STEP 2: Send OTP code to email
-      const { error: otpError } = await supabase.auth.signInWithOtp({
-        email: data.email,
-        options: {
-          shouldCreateUser: false, // User already created above
-        },
-      });
-
-      if (otpError) {
-        console.error('OTP request error:', otpError.message);
-        throw new Error('Failed to send verification code. Please try again.');
+      // Check if email confirmation is required
+      if (authData.user && !authData.user.email_confirmed_at) {
+        console.log('✅ Sign-up successful! Verification code sent to:', data.email);
+        console.log('⚠️  Check your email (including spam folder) for the 6-digit OTP code');
+        return true;
       }
 
-      // Log success message
-      console.log('✅ Sign-up successful! Verification code sent to:', data.email);
-      console.log('⚠️  Check your email (including spam folder) for the 6-digit OTP code');
+      // If auto-confirmed (shouldn't happen), load user immediately
+      if (authData.session) {
+        await loadUserFromSession(authData.session);
+        setPendingVerification(null);
+      }
 
       return true;
     } catch (error) {
@@ -282,8 +279,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   /**
-   * Verify OTP function - validates email with Supabase OTP
-   * Supabase uses email type for OTP verification
+   * Verify OTP function - validates email confirmation code
+   * This confirms the user's email and allows them to sign in
    */
   const verifyOTP = useCallback(
     async (email: string, otp: string): Promise<boolean> => {
@@ -293,11 +290,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           throw new Error('Supabase is not configured.');
         }
 
-        // Verify OTP with Supabase
+        // Verify the email confirmation token
         const { data, error } = await supabase.auth.verifyOtp({
           email,
           token: otp,
-          type: 'email',
+          type: 'email', // This confirms the email and allows login
         });
 
         if (error) {
@@ -313,10 +310,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
+        // Check if verification was successful
         if (data.session) {
           await loadUserFromSession(data.session);
           setPendingVerification(null);
-          console.log('✅ Email verified successfully!');
+          console.log('✅ Email verified successfully! You are now logged in.');
+          return true;
+        }
+
+        // If no session but user exists, verification succeeded
+        if (data.user) {
+          console.log('✅ Email verified! You can now sign in with your credentials.');
+          setPendingVerification(null);
           return true;
         }
 
