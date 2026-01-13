@@ -215,7 +215,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   /**
    * Sign up function - registers new user with Supabase
-   * Uses Supabase Auth with email confirmation
+   * Uses two-step process: create account + send OTP
    */
   const signUp = useCallback(async (data: SignUpData): Promise<boolean> => {
     try {
@@ -232,9 +232,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         department: data.department,
       });
 
-      // Sign up with Supabase
-      // Supabase will automatically send a verification email with OTP
-      const { data: authData, error } = await supabase.auth.signUp({
+      // STEP 1: Create the user account
+      const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: data.email,
         password: data.password,
         options: {
@@ -245,22 +244,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             department: data.department,
             role: mapDepartmentToRole(data.department),
           },
-          emailRedirectTo: window.location.origin,
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
         },
       });
 
-      if (error) {
-        console.error('Sign-up error:', error.message);
-        throw new Error(error.message);
+      if (signUpError) {
+        console.error('Sign-up error:', signUpError.message);
+        throw new Error(signUpError.message);
       }
 
       if (!authData.user) {
         throw new Error('Sign-up failed. Please try again.');
       }
 
+      // STEP 2: Send OTP code to email
+      const { error: otpError } = await supabase.auth.signInWithOtp({
+        email: data.email,
+        options: {
+          shouldCreateUser: false, // User already created above
+        },
+      });
+
+      if (otpError) {
+        console.error('OTP request error:', otpError.message);
+        throw new Error('Failed to send verification code. Please try again.');
+      }
+
       // Log success message
-      console.log('✅ Sign-up successful! Verification email sent to:', data.email);
-      console.log('⚠️  Check your email for the 6-digit OTP code');
+      console.log('✅ Sign-up successful! Verification code sent to:', data.email);
+      console.log('⚠️  Check your email (including spam folder) for the 6-digit OTP code');
 
       return true;
     } catch (error) {
@@ -271,7 +283,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   /**
    * Verify OTP function - validates email with Supabase OTP
-   * Supabase uses email_otp type for verification
+   * Supabase uses email type for OTP verification
    */
   const verifyOTP = useCallback(
     async (email: string, otp: string): Promise<boolean> => {
@@ -290,7 +302,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (error) {
           console.error('OTP verification error:', error.message);
-          throw new Error(error.message);
+          
+          // Provide user-friendly error messages
+          if (error.message.includes('expired')) {
+            throw new Error('This code has expired. Please request a new one.');
+          } else if (error.message.includes('invalid') || error.message.includes('Token')) {
+            throw new Error('Invalid code. Please check and try again.');
+          } else {
+            throw new Error(error.message);
+          }
         }
 
         if (data.session) {
@@ -300,7 +320,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return true;
         }
 
-        return false;
+        throw new Error('Verification failed. Please try again.');
       } catch (error) {
         console.error('OTP verification exception:', error);
         throw error;
